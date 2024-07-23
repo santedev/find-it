@@ -207,6 +207,7 @@ loop:
 	for {
 		select {
 		case <-done:
+			fmt.Println("done")
 			close(ch)
 			break loop
 		case p, ok := <-ch:
@@ -218,8 +219,10 @@ loop:
 				return
 			}
 			flusher.Flush()
+			fmt.Println("sent to client")
 		}
 	}
+	fmt.Println("end")
 }
 
 func scrapeStore(store, query string, maxPages, fastLoad int, strictSearch bool, page int, mainCh chan<- []Product) {
@@ -255,6 +258,7 @@ func scrapeStore(store, query string, maxPages, fastLoad int, strictSearch bool,
 			retryCount = retryCountInterface.(int)
 		}
 		if retryCount >= 3 {
+			fmt.Println("Stop retrying after 3 attempts")
 			return
 		}
 		r.Request.Ctx.Put("retry_count", retryCount+1)
@@ -372,10 +376,15 @@ func scrapeMercadolibre(c *colly.Collector, query string, maxPages int, fastLoad
 		if p.Picture[0] == 'd' {
 			wgOn.Add(1)
 			go func(p Product) {
+				fmt.Println("fetching image")
 				defer wgOn.Done()
+				defer func() {
+					fmt.Println("ended fetching image")
+				}()
 				ch := make(chan string)
 				go fetchProductImage(p.ProductLink, c.Clone(), ch)
 				p.Picture = <-ch
+				fmt.Println("not deadlock go routine")
 				err := stringNotAllVoid(p.Name, p.Price, p.Picture, p.Rating, p.ProductLink, p.CountRated, p.OldPrice, p.FreeShipping)
 				if err != nil {
 					fmt.Printf("Error in data validation: %v\n", err)
@@ -387,9 +396,12 @@ func scrapeMercadolibre(c *colly.Collector, query string, maxPages int, fastLoad
 			}(p)
 		}
 		if len(products) >= 10 && !sent {
+			fmt.Println("waiting products mercado libre first ten")
 			wgOn.Wait()
+			fmt.Println("stopped waiting products mercado libre")
 			mu.Lock()
 			ch <- products
+			fmt.Println(len(products), "mercadolibre. 10 or more")
 			products = make([]Product, 0, 50)
 			sent = true
 			mu.Unlock()
@@ -398,29 +410,17 @@ func scrapeMercadolibre(c *colly.Collector, query string, maxPages int, fastLoad
 	})
 
 	c.OnHTML(".andes-pagination__button.andes-pagination__button--next a.andes-pagination__link", func(e *colly.HTMLElement) {
+		fmt.Println(len(products), "mercadolibre")
 		if len(products) < 5 && limit < 2 {
 			limit++
 			time.Sleep(1 * time.Second)
-			reFetchCh := make(chan []Product)
-			reFetch(fetchCount, query, maxPages, fastLoad, strictSearch, store, page, reFetchCh)
+			fmt.Println("Retrying current page due to insufficient products")
+			products = make([]Product, 0)
+			reFetch(fetchCount, query, maxPages, fastLoad, strictSearch, store, page, ch)
 			fetchCount++
-			for productsArr := range reFetchCh {
-				mu.Lock()
-				for _, p := range productsArr {
-					duplicate := false
-					for _, sp := range products {
-						if p.Name == sp.Name && sp.Store == store {
-							duplicate = true
-							break
-						}
-					}
-					if !duplicate {
-						products = append(products, p)
-					}
-				}
-				mu.Unlock()
-			}
+			fmt.Println(len(products), "before")
 		}
+		fmt.Println(len(products), "after")
 		pageCount++
 		if pageCount < maxPages && pageCount != 0 {
 			nextPage := e.Attr("href")
@@ -428,8 +428,11 @@ func scrapeMercadolibre(c *colly.Collector, query string, maxPages int, fastLoad
 		}
 	})
 	c.Visit(url)
+	fmt.Println("waiting products mercado libre")
 	wgOn.Wait()
+	fmt.Println("stopped waiting mercadolibre all")
 	ch <- products
+	fmt.Println(len(products), "mercadolibre. all of them")
 }
 
 func scrapeAlibaba(c *colly.Collector, query string, maxPages int, store string, page int, ch chan<- []Product) {
@@ -489,9 +492,11 @@ func scrapeAlibaba(c *colly.Collector, query string, maxPages int, store string,
 	})
 
 	c.OnHTML("html", func(e *colly.HTMLElement) {
+		fmt.Println(len(products), "alibaba")
 		if len(products) == 0 && limit < 4 {
 			limit++
 			time.Sleep(1 * time.Second)
+			fmt.Println("Retrying current page due to insufficient products")
 			e.Request.Visit(e.Request.URL.String())
 			return
 		}
@@ -584,6 +589,7 @@ func scrapeAliexpress(c *colly.Collector, query string, maxPages int, strictSear
 				products = append(products, product)
 				if len(products) >= 10 && !sent {
 					ch <- products
+					fmt.Println(len(products), "aliexpress. first ten or more")
 					products = make([]Product, 0, 50)
 					sent = true
 				}
@@ -591,6 +597,7 @@ func scrapeAliexpress(c *colly.Collector, query string, maxPages int, strictSear
 		}
 	})
 	c.OnHTML("html", func(e *colly.HTMLElement) {
+		fmt.Println(len(products), "aliexpress")
 		if limit < 2 && len(products) <= 5 {
 			limit++
 			e.Request.Retry()
@@ -604,6 +611,7 @@ func scrapeAliexpress(c *colly.Collector, query string, maxPages int, strictSear
 	})
 	c.Visit(url)
 	ch <- products
+	fmt.Println(len(products), "aliexpress. all of them")
 }
 
 func scrapeAmazon(c *colly.Collector, query string, maxPages int, store string, page int, ch chan<- []Product) {
@@ -674,6 +682,10 @@ func scrapeAmazon(c *colly.Collector, query string, maxPages int, store string, 
 		}
 	})
 
+	c.OnScraped(func(r *colly.Response) {
+		fmt.Println(len(products), "amazon")
+	})
+
 	c.OnHTML("a.s-pagination-next", func(e *colly.HTMLElement) {
 		pageCount++
 		if pageCount < maxPages && pageCount != 0 {
@@ -732,3 +744,4 @@ func parsePrice(price string) string {
 	}
 	return builder.String()
 }
+
