@@ -9,7 +9,7 @@ export async function fetchProducts(
 ) {
   try {
     console.log(products);
-    const response = await fetch("https://find-it-fw6c.onrender.com/products/get", {
+    const response = await fetch("http://localhost:5000/products/get", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -33,24 +33,41 @@ export async function fetchProducts(
 
     while (!(chunk = await reader.read()).done) {
       let data = decoder.decode(chunk.value, { stream: true });
+      let temp = data;
       data = data.trimEnd("\n").split("\n");
       try {
         for (let p of data) {
           if (p.trim() !== "") {
             const product = JSON.parse(p.trimEnd("\n"));
+            if (
+              product instanceof Array &&
+              product[0] != null &&
+              product[0].store === "mercadolibre"
+            ) {
+              product.forEach((pm) => {
+                const duplicated = products.value.some(
+                  (p) => p.name === pm.name
+                );
+                duplicated ? null : products.value.push(pm);
+              });
+              console.log(product.length);
+              continue;
+            }
             if (product instanceof Array) {
               products.value.push(...product);
+              console.log(product);
+              continue;
             }
-            console.log("Product:", product);
+            console.log("Product:", temp);
           }
         }
       } catch (error) {
-        console.error(data);
+        console.error(temp);
         console.error("Error parsing JSON:", error);
       }
     }
   } catch (error) {
     console.error(error);
   }
-  console.log(products.length, "products");
+  console.log(products.value.length, "products");
 }
