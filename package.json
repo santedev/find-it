@@ -14,7 +14,9 @@
     "vue": "latest"
   },
   "devDependencies": {
+    "@unocss/nuxt": "^0.61.5",
     "autoprefixer": "^10.4.19",
+    "nuxt-icon": "^1.0.0-beta.7",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.6"
   }

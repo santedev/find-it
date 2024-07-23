@@ -1,4 +1,3 @@
-ppp
 <script setup>
 const input = ref("");
 const products = ref([
