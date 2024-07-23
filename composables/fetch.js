@@ -9,7 +9,7 @@ export async function fetchProducts(
 ) {
   try {
     console.log(products);
-    const response = await fetch("http://localhost:5000/products/get", {
+    const response = await fetch("https://find-it-fw6c.onrender.com/products/get", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
